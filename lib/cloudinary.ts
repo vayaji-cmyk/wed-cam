@@ -13,7 +13,7 @@ export type CloudinaryUploadResult = {
  * Supabase afterward.
  */
 export async function uploadToCloudinary(
-  file: File,
+  file: File | Blob,
   folder: string
 ): Promise<CloudinaryUploadResult> {
   const formData = new FormData();

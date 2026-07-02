@@ -10,6 +10,7 @@ const EVENT_NAME = process.env.NEXT_PUBLIC_EVENT_NAME || "Our Wedding";
 const FOLDER = process.env.NEXT_PUBLIC_CLOUDINARY_FOLDER || "wedding";
 
 type Status = "idle" | "uploading" | "error";
+type CameraStatus = "idle" | "requesting" | "ready" | "denied" | "unsupported";
 
 export default function GuestCameraPage() {
   const [nameInput, setNameInput] = useState("");
@@ -17,9 +18,15 @@ export default function GuestCameraPage() {
   const [guestId, setGuestIdState] = useState<string>("");
   const [shotsTaken, setShotsTaken] = useState<number | null>(null);
   const [status, setStatus] = useState<Status>("idle");
+  const [cameraStatus, setCameraStatus] = useState<CameraStatus>("idle");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [lastThumb, setLastThumb] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [flash, setFlash] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const pendingUploadsRef = useRef(0);
 
   useEffect(() => {
     function init() {
@@ -33,6 +40,54 @@ export default function GuestCameraPage() {
     }
     init();
   }, []);
+
+  const remaining =
+    shotsTaken === null ? null : Math.max(SHOT_LIMIT - shotsTaken, 0);
+  const rollDone = remaining === 0;
+
+  // Start the live camera preview once a guest has entered their name,
+  // and keep it running across shots — this is what lets someone shoot
+  // rapid successive photos with no OS "Use Photo?" confirmation step
+  // between each one, unlike a native <input capture> flow.
+  useEffect(() => {
+    if (!guestName || rollDone) return;
+
+    let cancelled = false;
+
+    async function startCamera() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraStatus("unsupported");
+        return;
+      }
+      setCameraStatus("requesting");
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        setCameraStatus("ready");
+      } catch (err) {
+        console.error(err);
+        if (!cancelled) setCameraStatus("denied");
+      }
+    }
+
+    void startCamera();
+
+    return () => {
+      cancelled = true;
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+  }, [guestName, rollDone]);
 
   async function refreshCount(id: string) {
     const { count, error } = await supabase
@@ -51,39 +106,67 @@ export default function GuestCameraPage() {
     void refreshCount(guestId);
   }
 
-  function triggerCamera() {
-    fileInputRef.current?.click();
-  }
-
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !guestName) return;
-
+  async function takeShot() {
+    // Only the guestName/limit/camera-readiness checks gate a new capture —
+    // an in-flight upload does NOT block the next tap, otherwise rapid
+    // shooting silently drops every tap that lands before the previous
+    // upload's network round-trip finishes. canvas.toBlob() snapshots the
+    // bitmap synchronously at call time, so overlapping captures on the
+    // shared canvas can't corrupt each other even while uploads race.
+    if (!guestName) return;
     if (shotsTaken !== null && shotsTaken >= SHOT_LIMIT) {
       setErrorMsg("Your roll is finished — no shots left.");
       return;
     }
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || cameraStatus !== "ready") return;
 
-    setStatus("uploading");
-    setErrorMsg(null);
-    try {
-      const result = await uploadToCloudinary(file, FOLDER);
-      const { error } = await supabase.from("wedcam_photos").insert({
-        guest_id: guestId,
-        guest_name: guestName,
-        image_url: result.secure_url,
-        cloudinary_public_id: result.public_id,
-      });
-      if (error) throw error;
-      setLastThumb(result.secure_url);
-      setShotsTaken((prev) => (prev === null ? 1 : prev + 1));
-      setStatus("idle");
-    } catch (err) {
-      console.error(err);
-      setErrorMsg("That shot didn't save. Check your connection and try again.");
-      setStatus("idle");
-    }
+    // Quick visual "shutter" flash for feedback, independent of upload speed
+    setFlash(true);
+    setTimeout(() => setFlash(false), 120);
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    canvas.toBlob(
+      async (blob) => {
+        if (!blob) return;
+        pendingUploadsRef.current += 1;
+        setStatus("uploading");
+        setErrorMsg(null);
+        try {
+          const file = new File([blob], `${Date.now()}.jpg`, {
+            type: "image/jpeg",
+          });
+          const result = await uploadToCloudinary(file, FOLDER);
+          const { error } = await supabase.from("wedcam_photos").insert({
+            guest_id: guestId,
+            guest_name: guestName,
+            image_url: result.secure_url,
+            cloudinary_public_id: result.public_id,
+          });
+          if (error) throw error;
+          setLastThumb(result.secure_url);
+          setShotsTaken((prev) => (prev === null ? 1 : prev + 1));
+        } catch (err) {
+          console.error(err);
+          setErrorMsg(
+            "That shot didn't save. Check your connection and try again."
+          );
+        } finally {
+          pendingUploadsRef.current -= 1;
+          // Only clear the "uploading" indicator once every in-flight
+          // upload from this burst of taps has settled.
+          if (pendingUploadsRef.current === 0) setStatus("idle");
+        }
+      },
+      "image/jpeg",
+      0.85
+    );
   }
 
   // Screen 1 — name entry
@@ -122,30 +205,37 @@ export default function GuestCameraPage() {
     );
   }
 
-  const remaining = shotsTaken === null ? null : Math.max(SHOT_LIMIT - shotsTaken, 0);
-  const rollDone = remaining === 0;
-
-  // Screen 2 — viewfinder / capture
+  // Screen 2 — live viewfinder / rapid capture
   return (
-    <main className="min-h-dvh flex flex-col bg-viewfinder text-ivory">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        onChange={handleFileChange}
-        className="hidden"
+    <main className="relative min-h-dvh flex flex-col bg-viewfinder text-ivory overflow-hidden">
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
+        className="absolute inset-0 h-full w-full object-cover"
+      />
+      <canvas ref={canvasRef} className="hidden" />
+
+      {/* Shutter flash feedback */}
+      <div
+        className={`pointer-events-none absolute inset-0 bg-white transition-opacity duration-150 ${
+          flash ? "opacity-70" : "opacity-0"
+        }`}
       />
 
-      <header className="flex items-center justify-between px-6 pt-6">
+      {/* Dark scrim so text stays legible over any live camera feed */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/70 pointer-events-none" />
+
+      <header className="relative z-10 flex items-center justify-between px-6 pt-6">
         <div>
-          <p className="font-body text-[11px] tracking-[0.2em] uppercase text-rose-dust/70">
+          <p className="font-body text-[11px] tracking-[0.2em] uppercase text-rose-dust/80">
             {EVENT_NAME}
           </p>
-          <p className="font-display text-lg text-ivory/90">{guestName}</p>
+          <p className="font-display text-lg text-ivory">{guestName}</p>
         </div>
         <div className="text-right">
-          <p className="frame-counter font-body text-xs text-brass/90">
+          <p className="frame-counter font-body text-xs text-brass">
             {shotsTaken === null ? "··" : String(shotsTaken).padStart(2, "0")}
             {" / "}
             {SHOT_LIMIT}
@@ -153,26 +243,41 @@ export default function GuestCameraPage() {
         </div>
       </header>
 
-      <div className="flex-1 flex flex-col items-center justify-center px-6">
+      <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
         {rollDone ? (
           <div className="text-center max-w-xs">
             <p className="font-display text-3xl mb-2">Roll&apos;s finished.</p>
-            <p className="font-body text-sm text-ivory/60">
+            <p className="font-body text-sm text-ivory/70">
               That&apos;s every shot on your film. Thank you for capturing the
               day — we can&apos;t wait to see it through your eyes.
             </p>
           </div>
+        ) : cameraStatus === "denied" ? (
+          <div className="text-center max-w-xs">
+            <p className="font-display text-2xl mb-2">Camera access needed</p>
+            <p className="font-body text-sm text-ivory/70">
+              Ek Roll needs camera permission to shoot. Check your browser
+              settings and allow camera access for this site, then reload.
+            </p>
+          </div>
+        ) : cameraStatus === "unsupported" ? (
+          <div className="text-center max-w-xs">
+            <p className="font-display text-2xl mb-2">Browser not supported</p>
+            <p className="font-body text-sm text-ivory/70">
+              Try opening this link in Safari or Chrome instead.
+            </p>
+          </div>
         ) : (
           <button
-            onClick={triggerCamera}
-            disabled={status === "uploading"}
+            onClick={takeShot}
+            disabled={cameraStatus !== "ready"}
             aria-label="Take a photo"
-            className="relative h-28 w-28 rounded-full border-4 border-ivory/80 bg-transparent flex items-center justify-center transition active:scale-95 disabled:opacity-50"
+            className="relative h-24 w-24 rounded-full border-4 border-ivory/90 bg-transparent flex items-center justify-center transition active:scale-95 disabled:opacity-40"
           >
-            <span className="h-20 w-20 rounded-full bg-ivory" />
+            <span className="h-[4.5rem] w-[4.5rem] rounded-full bg-ivory" />
             {status === "uploading" && (
-              <span className="absolute inset-0 flex items-center justify-center">
-                <span className="h-6 w-6 rounded-full border-2 border-maroon border-t-transparent animate-spin" />
+              <span className="absolute -bottom-8 font-body text-[10px] tracking-wide uppercase text-ivory/70">
+                Saving…
               </span>
             )}
           </button>
@@ -185,8 +290,8 @@ export default function GuestCameraPage() {
         )}
       </div>
 
-      <footer className="flex items-center justify-between px-6 pb-8">
-        <div className="h-14 w-14 rounded-md overflow-hidden border border-ivory/20 bg-ivory/5">
+      <footer className="relative z-10 flex items-center justify-between px-6 pb-8">
+        <div className="h-14 w-14 rounded-md overflow-hidden border border-ivory/30 bg-ivory/10">
           {lastThumb ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -196,8 +301,10 @@ export default function GuestCameraPage() {
             />
           ) : null}
         </div>
-        <p className="font-body text-[11px] text-ivory/40 text-right max-w-[10rem]">
-          Photos reveal together, after the day.
+        <p className="font-body text-[11px] text-ivory/60 text-right max-w-[10rem]">
+          {rollDone
+            ? "Photos reveal together, after the day."
+            : "Tap the shutter for as many shots as you like."}
         </p>
       </footer>
     </main>
