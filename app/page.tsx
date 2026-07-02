@@ -3,7 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { uploadToCloudinary } from "@/lib/cloudinary";
-import { getGuestId, getGuestName, setGuestName } from "@/lib/guest";
+import {
+  getGuestId,
+  getGuestName,
+  setGuestName,
+  hasSeenIntro,
+  setSeenIntro,
+} from "@/lib/guest";
 
 const SHOT_LIMIT = Number(process.env.NEXT_PUBLIC_SHOT_LIMIT || 50);
 const EVENT_NAME = process.env.NEXT_PUBLIC_EVENT_NAME || "Our Wedding";
@@ -13,6 +19,11 @@ type Status = "idle" | "uploading" | "error";
 type CameraStatus = "idle" | "requesting" | "ready" | "denied" | "unsupported";
 
 export default function GuestCameraPage() {
+  // null = not yet determined (avoids a hydration mismatch and any flash
+  // of the wrong screen — both the server render and the very first
+  // client render agree on "unknown" before the mount effect resolves it
+  // from localStorage).
+  const [showIntro, setShowIntro] = useState<boolean | null>(null);
   const [nameInput, setNameInput] = useState("");
   const [guestName, setGuestNameState] = useState<string | null>(null);
   const [guestId, setGuestIdState] = useState<string>("");
@@ -37,9 +48,15 @@ export default function GuestCameraPage() {
         setGuestNameState(existingName);
         void refreshCount(id);
       }
+      setShowIntro(!hasSeenIntro());
     }
     init();
   }, []);
+
+  function handleIntroContinue() {
+    setSeenIntro();
+    setShowIntro(false);
+  }
 
   const remaining =
     shotsTaken === null ? null : Math.max(SHOT_LIMIT - shotsTaken, 0);
@@ -166,6 +183,41 @@ export default function GuestCameraPage() {
       },
       "image/jpeg",
       0.85
+    );
+  }
+
+  // Not yet determined whether this device has seen the intro — render an
+  // empty ivory shell rather than guessing, so returning guests never see
+  // a flash of the welcome screen.
+  if (showIntro === null) {
+    return <main className="min-h-dvh bg-ivory" />;
+  }
+
+  // Screen 0 — first-visit welcome, shown once per device
+  if (showIntro) {
+    return (
+      <main className="min-h-dvh flex flex-col items-center justify-center px-6 bg-ivory text-ink">
+        <div className="w-full max-w-sm text-center">
+          <p className="font-body text-xs tracking-[0.25em] uppercase text-maroon/70 mb-3">
+            {EVENT_NAME}
+          </p>
+          <h1 className="font-display text-4xl font-semibold text-maroon-deep mb-2">
+            Welcome to Ek Roll
+          </h1>
+          <p className="font-body text-sm text-ink/70 mb-8">
+            Ek Roll is a shared disposable camera for {EVENT_NAME}. Everyone
+            shoots their own roll — up to {SHOT_LIMIT} shots — and no one,
+            not even you, sees a single photo until the whole roll is
+            revealed together, after the day.
+          </p>
+          <button
+            onClick={handleIntroContinue}
+            className="w-full rounded-full bg-maroon px-5 py-3 font-body text-base font-medium text-ivory transition active:scale-[0.98]"
+          >
+            Continue
+          </button>
+        </div>
+      </main>
     );
   }
 

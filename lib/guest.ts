@@ -1,5 +1,6 @@
 const GUEST_ID_KEY = "wedding_cam_guest_id";
 const GUEST_NAME_KEY = "wedding_cam_guest_name";
+const SEEN_INTRO_KEY = "wedding_cam_seen_intro";
 
 function generateId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -26,4 +27,14 @@ export function getGuestName(): string | null {
 export function setGuestName(name: string): void {
   if (typeof window === "undefined") return;
   window.localStorage.setItem(GUEST_NAME_KEY, name.trim());
+}
+
+export function hasSeenIntro(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(SEEN_INTRO_KEY) === "true";
+}
+
+export function setSeenIntro(): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(SEEN_INTRO_KEY, "true");
 }
