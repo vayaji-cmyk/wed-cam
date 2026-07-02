@@ -66,7 +66,7 @@ export default function GalleryPage() {
                 loading="lazy"
                 className="h-full w-full object-cover transition group-hover:scale-105"
               />
-              <span className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-viewfinder/80 to-transparent px-2 py-1.5 text-[11px] font-body text-ivory opacity-0 group-hover:opacity-100 transition">
+              <span className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-viewfinder/90 via-viewfinder/40 to-transparent px-2 pt-6 pb-1.5 text-[11px] font-body text-ivory">
                 {photo.guest_name}
               </span>
             </a>
