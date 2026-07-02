@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+:root {
+  /* Design tokens — wedding guest-cam */
+  --ivory: #f7f1e5;
+  --ink: #241b17;
+  --maroon: #6b1420;
+  --maroon-deep: #4a0d16;
+  --brass: #c9973a;
+  --rose-dust: #e8c4b8;
+  --viewfinder: #171210;
+}
+
+@theme inline {
+  --color-ivory: var(--ivory);
+  --color-ink: var(--ink);
+  --color-maroon: var(--maroon);
+  --color-maroon-deep: var(--maroon-deep);
+  --color-brass: var(--brass);
+  --color-rose-dust: var(--rose-dust);
+  --color-viewfinder: var(--viewfinder);
+  --font-display: var(--font-cormorant);
+  --font-body: var(--font-inter);
+}
+
+body {
+  background: var(--ivory);
+  color: var(--ink);
+  font-family: var(--font-body), Arial, Helvetica, sans-serif;
+}
+
+/* Frame-counter signature element: mechanical tick marks either side
+   of the number, like an analog film camera's counter wheel. */
+.frame-counter {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.frame-counter::before,
+.frame-counter::after {
+  content: "";
+  display: inline-block;
+  width: 1px;
+  height: 0.7em;
+  background: currentColor;
+  opacity: 0.35;
+  margin: 0 0.5em;
+  vertical-align: middle;
+}
+
