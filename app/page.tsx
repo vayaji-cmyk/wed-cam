@@ -24,6 +24,11 @@ export default function GuestCameraPage() {
   // client render agree on "unknown" before the mount effect resolves it
   // from localStorage).
   const [showIntro, setShowIntro] = useState<boolean | null>(null);
+  const [showAddToHomeInstructions, setShowAddToHomeInstructions] =
+    useState(false);
+  const [addToHomePlatform, setAddToHomePlatform] = useState<
+    "iphone" | "android"
+  >("iphone");
   const [nameInput, setNameInput] = useState("");
   const [guestName, setGuestNameState] = useState<string | null>(null);
   const [guestId, setGuestIdState] = useState<string>("");
@@ -216,6 +221,68 @@ export default function GuestCameraPage() {
           >
             Continue
           </button>
+
+          <button
+            type="button"
+            onClick={() => setShowAddToHomeInstructions((v) => !v)}
+            className="mt-4 font-body text-xs text-maroon/70 underline underline-offset-2"
+          >
+            How do I save this to my home screen?
+          </button>
+
+          {showAddToHomeInstructions && (
+            <div className="mt-4 rounded-2xl border border-maroon/15 bg-white/40 p-4 text-left">
+              <div className="flex gap-2 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setAddToHomePlatform("iphone")}
+                  className={`flex-1 rounded-full px-3 py-1.5 font-body text-xs font-medium transition ${
+                    addToHomePlatform === "iphone"
+                      ? "bg-maroon text-ivory"
+                      : "bg-transparent text-maroon/70 border border-maroon/25"
+                  }`}
+                >
+                  iPhone
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAddToHomePlatform("android")}
+                  className={`flex-1 rounded-full px-3 py-1.5 font-body text-xs font-medium transition ${
+                    addToHomePlatform === "android"
+                      ? "bg-maroon text-ivory"
+                      : "bg-transparent text-maroon/70 border border-maroon/25"
+                  }`}
+                >
+                  Android
+                </button>
+              </div>
+
+              {addToHomePlatform === "iphone" ? (
+                <ol className="list-decimal list-inside space-y-1.5 font-body text-xs text-ink/80">
+                  <li>
+                    Tap the Share icon (square with an arrow pointing up) in
+                    the bottom toolbar
+                  </li>
+                  <li>Scroll down and tap &quot;Add to Home Screen&quot;</li>
+                  <li>
+                    If it&apos;s not listed, tap &quot;Edit Actions...&quot;
+                    at the bottom of the share sheet first, turn on
+                    &quot;Add to Home Screen&quot;, then repeat step 2
+                  </li>
+                  <li>Tap &quot;Add&quot; in the top-right corner</li>
+                </ol>
+              ) : (
+                <ol className="list-decimal list-inside space-y-1.5 font-body text-xs text-ink/80">
+                  <li>Tap the three-dot menu (⋮) in the top-right corner</li>
+                  <li>
+                    Tap &quot;Add to Home screen&quot; or &quot;Install
+                    app&quot; — Chrome does not always prompt this
+                    automatically, so check this menu manually
+                  </li>
+                </ol>
+              )}
+            </div>
+          )}
         </div>
       </main>
     );
@@ -295,6 +362,9 @@ export default function GuestCameraPage() {
         </div>
       </header>
 
+      {/* Status messages live in the space above the controls, so they
+          read comfortably without crowding the shutter down near the
+          thumb-reach zone. */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-6">
         {rollDone ? (
           <div className="text-center max-w-xs">
@@ -319,7 +389,23 @@ export default function GuestCameraPage() {
               Try opening this link in Safari or Chrome instead.
             </p>
           </div>
-        ) : (
+        ) : null}
+      </div>
+
+      {/* Bottom control cluster — shutter sits within one-handed thumb
+          reach, with enough bottom clearance to stay clear of the iOS
+          home-indicator gesture zone. */}
+      <div
+        className="relative z-10 flex flex-col items-center gap-12 px-6"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 32px)" }}
+      >
+        {errorMsg && (
+          <p className="font-body text-sm text-rose-dust text-center max-w-xs">
+            {errorMsg}
+          </p>
+        )}
+
+        {!rollDone && cameraStatus !== "denied" && cameraStatus !== "unsupported" && (
           <button
             onClick={takeShot}
             disabled={cameraStatus !== "ready"}
@@ -335,30 +421,24 @@ export default function GuestCameraPage() {
           </button>
         )}
 
-        {errorMsg && (
-          <p className="mt-6 font-body text-sm text-rose-dust text-center max-w-xs">
-            {errorMsg}
+        <div className="flex items-center justify-between w-full max-w-xs">
+          <div className="h-14 w-14 rounded-md overflow-hidden border border-ivory/30 bg-ivory/10">
+            {lastThumb ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={lastThumb}
+                alt="Last shot"
+                className="h-full w-full object-cover"
+              />
+            ) : null}
+          </div>
+          <p className="font-body text-[11px] text-ivory/60 text-right max-w-[10rem]">
+            {rollDone
+              ? "Photos reveal together, after the day."
+              : "Tap the shutter for as many shots as you like."}
           </p>
-        )}
-      </div>
-
-      <footer className="relative z-10 flex items-center justify-between px-6 pb-8">
-        <div className="h-14 w-14 rounded-md overflow-hidden border border-ivory/30 bg-ivory/10">
-          {lastThumb ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={lastThumb}
-              alt="Last shot"
-              className="h-full w-full object-cover"
-            />
-          ) : null}
         </div>
-        <p className="font-body text-[11px] text-ivory/60 text-right max-w-[10rem]">
-          {rollDone
-            ? "Photos reveal together, after the day."
-            : "Tap the shutter for as many shots as you like."}
-        </p>
-      </footer>
+      </div>
     </main>
   );
 }
